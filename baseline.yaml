@@ -1,0 +1,43 @@
+--dataset_directory: ./data
+--result_directory: ./results
+--export_dir: baseline
+
+--use_cuda: True
+--log_interval: 100
+--model: DCASE2023T2-AE
+--score: HYBRID
+--seed: 13711
+--is_auto_download: False
+
+--max_fpr: 0.1
+--decision_threshold: 0.9
+
+# feature
+--n_mels: 128
+--frames: 5
+--frame_hop_length: 1
+--n_fft: 1024
+--hop_length: 512
+--power: 2.0
+--fmin: 0.0
+--fmax: null
+--win_length: null
+
+# fit
+--batch_size: 256
+--epochs: 100
+-lr: 0.001
+--weight_decay: 0.0001
+--grad_clip: 5.0
+--hidden_dim: 512
+--latent_dim: 64
+--dropout: 0.1
+--input_noise: 0.05
+--latent_loss_weight: 0.01
+--hybrid_recon_weight: 0.6
+--hybrid_latent_weight: 0.4
+--file_score_quantile: 0.9
+--file_score_tail_weight: 0.5
+--cov_eps: 0.0001
+--shuffle: True
+--validation_split: 0.1

@@ -5,7 +5,7 @@ from configs import Config
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train the simplified DCASE Task 2 AE baseline.")
+    parser = argparse.ArgumentParser(description="Score wav files with the simplified DCASE Task 2 AE baseline.")
     parser.add_argument("--data_dir", type=Path, required=True, help="Dataset root with train/ and test/ wav folders.")
     parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/ae_model.pt"))
     parser.add_argument("--output_dir", type=Path, default=Path("outputs"))
@@ -25,32 +25,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mono", action=argparse.BooleanOptionalAction, default=True)
 
     parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--learning_rate", "-lr", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--grad_clip", type=float, default=5.0)
     parser.add_argument("--validation_split", type=float, default=0.1)
-    parser.add_argument("--shuffle", action=argparse.BooleanOptionalAction, default=True)
-
     parser.add_argument("--hidden_dim", type=int, default=512)
     parser.add_argument("--latent_dim", type=int, default=64)
     parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--input_noise", type=float, default=0.05)
     parser.add_argument("--file_score_quantile", type=float, default=0.9)
     parser.add_argument("--file_score_tail_weight", type=float, default=0.5)
-    parser.add_argument("--log_interval", type=int, default=100)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    from dcase_ae.trainer import AETrainer
+    from dcase_ae.evaluator import AEEvaluator
     from dcase_ae.utils import set_seed
 
     cfg = Config(**vars(args))
     set_seed(cfg.seed)
-    checkpoint_path = AETrainer(cfg).fit()
-    print(f"Saved checkpoint: {checkpoint_path}")
+    scores_path = AEEvaluator(cfg).evaluate()
+    print(f"Saved scores: {scores_path}")
 
 
 if __name__ == "__main__":

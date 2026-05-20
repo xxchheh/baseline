@@ -561,7 +561,9 @@ class DCASE2023T2AE(BaseModel):
         print("============== MODEL LOAD ==============")
         if not os.path.exists(self.model_path):
             print(f"model not found -> {self.model_path} ")
-        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        # self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        #改成cpu进行测试
+        self.model.load_state_dict(torch.load(self.model_path,map_location=torch.device('cpu')))
         self.model.eval()
 
         decision_threshold = self.calc_decision_threshold(

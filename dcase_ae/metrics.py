@@ -128,7 +128,7 @@ def _safe_roc_auc(y_true: np.ndarray, y_score: np.ndarray, max_fpr: float | None
     tpr = tps / positives
     fpr = fps / negatives
     if max_fpr is None or max_fpr >= 1.0:
-        return float(np.trapz(tpr, fpr))
+        return _trapezoid_area(tpr, fpr)
     if max_fpr <= 0:
         return float("nan")
 
@@ -137,10 +137,16 @@ def _safe_roc_auc(y_true: np.ndarray, y_score: np.ndarray, max_fpr: float | None
     y_interp = [np.interp(max_fpr, fpr, tpr)]
     partial_fpr = np.append(fpr[:stop], x_interp)
     partial_tpr = np.append(tpr[:stop], y_interp)
-    partial_auc = np.trapz(partial_tpr, partial_fpr)
+    partial_auc = _trapezoid_area(partial_tpr, partial_fpr)
     min_area = 0.5 * max_fpr**2
     max_area = max_fpr
     return float(0.5 * (1.0 + (partial_auc - min_area) / (max_area - min_area)))
+
+
+def _trapezoid_area(y: np.ndarray, x: np.ndarray) -> float:
+    if len(x) < 2:
+        return 0.0
+    return float(np.sum((x[1:] - x[:-1]) * (y[1:] + y[:-1]) * 0.5))
 
 
 def _classification_metrics(

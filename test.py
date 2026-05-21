@@ -31,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--file_score_quantile", type=float, default=0.9)
     parser.add_argument("--file_score_tail_weight", type=float, default=0.5)
+    parser.add_argument("--max_fpr", type=float, default=0.1)
+    parser.add_argument("--decision_threshold", type=float, default=None)
     return parser.parse_args()
 
 
@@ -41,8 +43,10 @@ def main() -> None:
 
     cfg = Config(**vars(args))
     set_seed(cfg.seed)
-    scores_path = AEEvaluator(cfg).evaluate()
+    scores_path, metrics_path = AEEvaluator(cfg).evaluate()
     print(f"Saved scores: {scores_path}")
+    if metrics_path is not None:
+        print(f"Saved metrics: {metrics_path}")
 
 
 if __name__ == "__main__":

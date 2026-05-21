@@ -36,6 +36,8 @@ class Config:
     input_noise: float = 0.05
     file_score_quantile: float = 0.9
     file_score_tail_weight: float = 0.5
+    max_fpr: float = 0.1
+    decision_threshold: float | None = None
     log_interval: int = 100
 
     @property

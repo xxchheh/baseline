@@ -5,5 +5,5 @@ data/
 
 checkpoints/*
 !checkpoints/.gitkeep
-outputs/*
+# outputs/*
 !outputs/.gitkeep

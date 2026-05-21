@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from dcase_ae.features import FeatureConfig, file_to_vectors
+from dcase_ae.audio import load_audio
 
 
 WAV_EXTENSIONS = {".wav", ".wave"}
@@ -64,6 +65,33 @@ class LocalDCASEFileDataset(Dataset):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, str]:
         item = self.file_features[index]
         return torch.from_numpy(item.vectors).float(), item.path.name
+
+
+class LocalDCASEAudioDataset(Dataset):
+    def __init__(
+        self,
+        directory: str | Path,
+        sample_rate: int = 16000,
+        mono: bool = True,
+    ):
+        self.files = list_wav_files(directory)
+        if not self.files:
+            raise FileNotFoundError(f"No wav files found under: {directory}")
+        self.sample_rate = sample_rate
+        self.mono = mono
+
+    def __len__(self) -> int:
+        return len(self.files)
+
+    def __getitem__(self, index: int) -> tuple[np.ndarray, str]:
+        path = self.files[index]
+        waveform, _ = load_audio(path, mono=self.mono, sample_rate=self.sample_rate)
+        return waveform, path.name
+
+
+def audio_collate_fn(batch: list[tuple[np.ndarray, str]]) -> tuple[list[np.ndarray], list[str]]:
+    waveforms, basenames = zip(*batch)
+    return list(waveforms), list(basenames)
 
 
 class LocalDCASEDataModule:
@@ -127,3 +155,23 @@ class LocalDCASEDataModule:
     def test_loader(self) -> DataLoader:
         dataset = LocalDCASEFileDataset(self.test_dir, self.feature_cfg)
         return DataLoader(dataset, batch_size=1, shuffle=False, num_workers=self.num_workers)
+
+    def train_audio_loader(self, sample_rate: int, mono: bool = True) -> DataLoader:
+        dataset = LocalDCASEAudioDataset(self.train_dir, sample_rate=sample_rate, mono=mono)
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            collate_fn=audio_collate_fn,
+        )
+
+    def test_audio_loader(self, sample_rate: int, mono: bool = True) -> DataLoader:
+        dataset = LocalDCASEAudioDataset(self.test_dir, sample_rate=sample_rate, mono=mono)
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            collate_fn=audio_collate_fn,
+        )

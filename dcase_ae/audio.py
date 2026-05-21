@@ -4,9 +4,13 @@ import librosa
 import numpy as np
 
 
-def load_audio(path: str | Path, mono: bool = True) -> tuple[np.ndarray, int]:
+def load_audio(
+    path: str | Path,
+    mono: bool = True,
+    sample_rate: int | None = None,
+) -> tuple[np.ndarray, int]:
     path = Path(path)
-    y, sr = librosa.load(path, sr=None, mono=mono)
+    y, sr = librosa.load(path, sr=sample_rate, mono=mono)
     if not mono and y.ndim > 1:
         y = y[0]
-    return y, sr
+    return y.astype(np.float32, copy=False), sr

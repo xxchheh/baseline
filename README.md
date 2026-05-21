@@ -1,31 +1,14 @@
-# DCASE 2023 Task 2 Baseline AE, Simplified
+# DCASE Task 2 Baseline, Pretrained Embedding + GMM
 
-This is a minimal PyTorch refactor of the DCASE Task 2 AutoEncoder baseline.
-It keeps the original `AENet` implementation in `networks/dcase2023t2_ae/network.py`,
-but removes cross-year dataset handling, shell scripts, auto-download code, YAML configuration,
-and challenge submission formatting.
-
-## Project Layout
+This refactor keeps the existing local data flow and evaluation outputs, but replaces the
+AutoEncoder training/scoring core with:
 
 ```text
-.
-|-- train.py
-|-- test.py
-|-- configs.py
-|-- dcase_ae/
-|   |-- audio.py
-|   |-- features.py
-|   |-- dataset.py
-|   |-- trainer.py
-|   |-- evaluator.py
-|   |-- metrics.py
-|   `-- utils.py
-|-- networks/
-|   `-- dcase2023t2_ae/
-|       `-- network.py
-|-- checkpoints/
-`-- outputs/
+pretrained audio model -> mean-pooled embedding -> GaussianMixture score
 ```
+
+The pretrained model is frozen and used only as an embedding extractor. The default model is
+`microsoft/wavlm-base`.
 
 ## Dataset
 
@@ -43,8 +26,8 @@ your_dataset/
     `-- section_00_target_test_anomaly_0000.wav
 ```
 
-The code does not download anything and does not loop over machine types. Pass the exact dataset
-directory you want to train and score.
+The code does not download DCASE data and does not loop over machine types. Pass the exact
+dataset directory you want to train and score.
 
 ## Train
 
@@ -52,19 +35,49 @@ directory you want to train and score.
 python train.py --data_dir /path/to/your_dataset
 ```
 
-The default checkpoint is written to:
+Training now means:
 
 ```text
-checkpoints/ae_model.pt
+read train wav files
+extract one embedding per wav with the frozen pretrained model
+fit sklearn.mixture.GaussianMixture on the train embeddings
+save the GMM with joblib
+```
+
+The default checkpoint is:
+
+```text
+checkpoints/gmm.joblib
+```
+
+Useful options:
+
+```bash
+python train.py \
+  --data_dir /path/to/your_dataset \
+  --pretrained_model_name microsoft/wavlm-base \
+  --embedding_sample_rate 16000 \
+  --batch_size 8 \
+  --gmm_components 4
 ```
 
 ## Test
 
 ```bash
-python test.py --data_dir /path/to/your_dataset --checkpoint_path checkpoints/ae_model.pt
+python test.py --data_dir /path/to/your_dataset --checkpoint_path checkpoints/gmm.joblib
 ```
 
-The test script always writes file-level anomaly scores:
+Testing now means:
+
+```text
+read test wav files
+extract one embedding per wav
+score each embedding with gmm.score_samples
+use negative log likelihood as anomaly_score
+write scores.csv and metrics.csv
+```
+
+The test script always writes:
 
 ```text
 outputs/scores.csv
@@ -101,16 +114,75 @@ F1 score (source),F1 score (target)
 
 If a required group has only normal or only anomaly samples, that metric is written as `nan`.
 
-## Defaults
+## Notes
 
-The feature defaults follow the original baseline:
+The first run of `microsoft/wavlm-base` requires the model to be available from Hugging Face or
+already cached locally. To use another compatible Hugging Face audio model, pass
+`--pretrained_model_name`.
 
-```text
-n_mels=128
-frames=5
-n_fft=1024
-hop_length=512
-power=2.0
+
+
+## 增加BEATs与GMM打分
+
+已完成：核心算法已经从 **AutoEncoder + MSE** 替换成了 **预训练音频大模型 embedding + GMM 负对数似然打分**。
+
+改动重点：
+
+- 新增 [dcase_ae/embedder.py](D:/CodeMater/DCASE/myproject/dcase2023_task2_baseline_ae/dcase_ae/embedder.py)
+  - 使用 `transformers` 加载默认模型 `microsoft/wavlm-base`
+  - 冻结所有参数
+  - 对 `last_hidden_state` 做 mean pooling，得到每条 wav 一个 embedding
+
+- 重写 [dcase_ae/trainer.py](D:/CodeMater/DCASE/myproject/dcase2023_task2_baseline_ae/dcase_ae/trainer.py)
+  - 不再训练 AE
+  - 不再有 optimizer / epoch / loss / backward
+  - 遍历 `train/`，提取 embedding
+  - 使用 `sklearn.mixture.GaussianMixture` 拟合
+  - 保存到 `checkpoints/gmm.joblib`
+
+- 修改 [dcase_ae/evaluator.py](D:/CodeMater/DCASE/myproject/dcase2023_task2_baseline_ae/dcase_ae/evaluator.py)
+  - 加载 GMM
+  - 遍历 `test/`，提取 embedding
+  - 使用：
+
+```python
+anomaly_score = -gmm.score_samples(embedding)
 ```
 
-The network architecture is not redesigned. `AENet` is still the original core model.
+  - 后续 `scores.csv`、`metrics.csv`、AUC/pAUC/precision/recall/F1 的保存逻辑保留原来的输出形式
+
+新增依赖：
+
+```text
+transformers
+scikit-learn
+joblib
+```
+
+现在使用方式：
+
+```bash
+python train.py --data_dir /path/to/your_dataset
+python test.py --data_dir /path/to/your_dataset --checkpoint_path checkpoints/gmm.joblib
+```
+
+可调参数示例：
+
+```bash
+python train.py \
+  --data_dir /path/to/your_dataset \
+  --pretrained_model_name microsoft/wavlm-base \
+  --embedding_sample_rate 16000 \
+  --batch_size 8 \
+  --gmm_components 4
+```
+
+我也做了静态检查：
+
+```bash
+python train.py --help
+python test.py --help
+python -m compileall train.py test.py configs.py dcase_ae
+```
+
+都通过了。实际加载 `microsoft/wavlm-base` 需要你的服务器能访问 HuggingFace，或者模型已经在本地缓存里。

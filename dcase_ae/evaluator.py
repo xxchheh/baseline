@@ -1,11 +1,11 @@
 import csv
 from pathlib import Path
 
-import torch
-import torch.nn.functional as F
+import joblib
 
 from configs import Config
 from dcase_ae.dataset import LocalDCASEDataModule
+from dcase_ae.embedder import PretrainedAudioEmbedder
 from dcase_ae.features import FeatureConfig
 from dcase_ae.metrics import (
     METRIC_HEADER,
@@ -15,8 +15,7 @@ from dcase_ae.metrics import (
     parse_domain_from_filename,
     parse_label_from_filename,
 )
-from dcase_ae.utils import ensure_dir, get_device, load_checkpoint
-from networks.dcase2023t2_ae.network import AENet
+from dcase_ae.utils import ensure_dir, get_device
 
 
 class AEEvaluator:
@@ -44,20 +43,15 @@ class AEEvaluator:
             num_workers=cfg.num_workers,
             seed=cfg.seed,
         )
-        self.model = AENet(
-            input_dim=cfg.input_dim,
-            block_size=cfg.n_mels,
-            num_conditions=0,
-            latent_dim=cfg.latent_dim,
-            hidden_dim=cfg.hidden_dim,
-            dropout=cfg.dropout,
-        ).to(self.device)
+        self.embedder = PretrainedAudioEmbedder(
+            model_name=cfg.pretrained_model_name,
+            sample_rate=cfg.embedding_sample_rate,
+            device=self.device,
+        )
 
     def evaluate(self) -> tuple[Path, Path | None]:
-        checkpoint = load_checkpoint(self.cfg.checkpoint_path, self.device)
-        state_dict = checkpoint.get("model_state_dict", checkpoint)
-        self.model.load_state_dict(state_dict)
-        self.model.eval()
+        checkpoint = joblib.load(self.cfg.checkpoint_path)
+        gmm = checkpoint["gmm"] if isinstance(checkpoint, dict) else checkpoint
 
         output_dir = ensure_dir(self.cfg.output_dir)
         scores_path = output_dir / "scores.csv"
@@ -65,30 +59,33 @@ class AEEvaluator:
         rows = [["filename", "anomaly_score", "label", "domain"]]
         records = []
 
-        with torch.no_grad():
-            for vectors, basename in self.data.test_loader():
-                vectors = vectors.squeeze(0).to(self.device).float()
-                recon, _ = self.model(vectors)
-                frame_scores = F.mse_loss(recon, vectors.view(recon.shape), reduction="none").mean(dim=1)
-                score = self._aggregate_frame_scores(frame_scores)
-                filename = basename[0]
-                score_value = float(score.item())
+        for batch_idx, (waveforms, basenames) in enumerate(
+            self.data.test_audio_loader(
+                sample_rate=self.cfg.embedding_sample_rate,
+                mono=True,
+            )
+        ):
+            embeddings = self.embedder.extract(waveforms)
+            anomaly_scores = -gmm.score_samples(embeddings)
+            for filename, score_value in zip(basenames, anomaly_scores):
                 label = parse_label_from_filename(filename)
                 domain = parse_domain_from_filename(filename)
                 rows.append([
                     filename,
-                    f"{score_value:.10f}",
+                    f"{float(score_value):.10f}",
                     _format_label(label),
                     domain or "",
                 ])
                 records.append(
                     ScoreRecord(
                         filename=filename,
-                        score=score_value,
+                        score=float(score_value),
                         label=label,
                         domain=domain,
                     )
                 )
+            if batch_idx % self.cfg.log_interval == 0:
+                print(f"Score test embeddings batch={batch_idx}")
 
         with open(scores_path, "w", newline="") as f:
             writer = csv.writer(f)
@@ -107,16 +104,6 @@ class AEEvaluator:
         else:
             metrics_path = None
         return scores_path, metrics_path
-
-    def _aggregate_frame_scores(self, frame_scores: torch.Tensor) -> torch.Tensor:
-        if frame_scores.numel() == 0:
-            return frame_scores.new_tensor(0.0)
-        mean_score = frame_scores.mean()
-        tail_score = torch.quantile(frame_scores, self.cfg.file_score_quantile)
-        return (
-            (1.0 - self.cfg.file_score_tail_weight) * mean_score
-            + self.cfg.file_score_tail_weight * tail_score
-        )
 
 
 def _format_label(label: int | None) -> str:

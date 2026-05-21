@@ -21,20 +21,3 @@ def set_seed(seed: int) -> None:
 
 def get_device(use_cuda: bool = True) -> torch.device:
     return torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
-
-
-def save_checkpoint(path: str | Path, model: torch.nn.Module, config: dict, epoch: int) -> None:
-    path = Path(path)
-    ensure_dir(path.parent)
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "config": config,
-        },
-        path,
-    )
-
-
-def load_checkpoint(path: str | Path, device: torch.device) -> dict:
-    return torch.load(Path(path), map_location=device)

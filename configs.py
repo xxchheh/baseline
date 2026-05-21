@@ -5,11 +5,13 @@ from pathlib import Path
 @dataclass
 class Config:
     data_dir: Path
-    checkpoint_path: Path = Path("checkpoints/ae_model.pt")
+    checkpoint_path: Path = Path("checkpoints/gmm.joblib")
     output_dir: Path = Path("outputs")
     seed: int = 13711
     use_cuda: bool = True
     num_workers: int = 0
+    pretrained_model_name: str = "microsoft/wavlm-base"
+    embedding_sample_rate: int = 16000
 
     n_mels: int = 128
     frames: int = 5
@@ -22,7 +24,7 @@ class Config:
     win_length: int | None = None
     mono: bool = True
 
-    batch_size: int = 256
+    batch_size: int = 8
     epochs: int = 100
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
@@ -38,6 +40,10 @@ class Config:
     file_score_tail_weight: float = 0.5
     max_fpr: float = 0.1
     decision_threshold: float | None = None
+    gmm_components: int = 4
+    gmm_covariance_type: str = "full"
+    gmm_reg_covar: float = 1e-6
+    gmm_max_iter: int = 100
     log_interval: int = 100
 
     @property

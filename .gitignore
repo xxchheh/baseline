@@ -2,9 +2,6 @@ __pycache__/
 *.py[cod]
 
 data/
-logs/
-models/
-results/
 
 checkpoints/*
 !checkpoints/.gitkeep

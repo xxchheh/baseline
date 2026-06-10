@@ -9,7 +9,7 @@ class Config:
     output_dir: Path = Path("outputs")
     seed: int = 13711
     use_cuda: bool = True
-    num_workers: int = 0
+    num_workers: int = 4
     pretrained_model_name: str = "microsoft/wavlm-base"
     embedding_sample_rate: int = 16000
 
@@ -24,7 +24,7 @@ class Config:
     win_length: int | None = None
     mono: bool = True
 
-    batch_size: int = 8
+    batch_size: int = 128
     epochs: int = 100
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4

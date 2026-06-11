@@ -5,7 +5,7 @@ from pathlib import Path
 @dataclass
 class Config:
     data_dir: Path
-    checkpoint_path: Path = Path("checkpoints/gmm.joblib")
+    checkpoint_path: Path = Path("checkpoints/knn.joblib")
     output_dir: Path = Path("outputs")
     seed: int = 13711
     use_cuda: bool = True
@@ -40,10 +40,8 @@ class Config:
     file_score_tail_weight: float = 0.5
     max_fpr: float = 0.1
     decision_threshold: float | None = None
-    gmm_components: int = 4
-    gmm_covariance_type: str = "full"
-    gmm_reg_covar: float = 1e-6
-    gmm_max_iter: int = 100
+    knn_neighbors: int = 5
+    pca_dim: int = 64
     log_interval: int = 100
 
     @property

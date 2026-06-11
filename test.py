@@ -8,9 +8,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # 顺便解决你之前的OMP错误
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Score wav files with a pretrained-audio-embedding + GMM baseline.")
+    parser = argparse.ArgumentParser(description="Score wav files with a pretrained-audio-embedding + KNN baseline.")
     parser.add_argument("--data_dir", type=Path, required=True, help="Dataset root with train/ and test/ wav folders.")
-    parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/gmm.joblib"))
+    parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/knn.joblib"))
     parser.add_argument("--output_dir", type=Path, default=Path("outputs"))
     parser.add_argument("--seed", type=int, default=13711)
     parser.add_argument("--use_cuda", action=argparse.BooleanOptionalAction, default=True)
@@ -38,10 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--file_score_tail_weight", type=float, default=0.5)
     parser.add_argument("--max_fpr", type=float, default=0.1)
     parser.add_argument("--decision_threshold", type=float, default=None)
-    parser.add_argument("--gmm_components", type=int, default=4)
-    parser.add_argument("--gmm_covariance_type", type=str, default="full")
-    parser.add_argument("--gmm_reg_covar", type=float, default=1e-6)
-    parser.add_argument("--gmm_max_iter", type=int, default=100)
+    parser.add_argument("--knn_neighbors", type=int, default=5)
+    parser.add_argument("--pca_dim", type=int, default=64)
     parser.add_argument("--log_interval", type=int, default=100)
     return parser.parse_args()
 

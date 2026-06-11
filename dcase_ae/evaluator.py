@@ -51,7 +51,9 @@ class AEEvaluator:
 
     def evaluate(self) -> tuple[Path, Path | None]:
         checkpoint = joblib.load(self.cfg.checkpoint_path)
-        gmm = checkpoint["gmm"] if isinstance(checkpoint, dict) else checkpoint
+        if not isinstance(checkpoint, dict) or checkpoint.get("detector_type") != "knn":
+            raise RuntimeError("Expected a KNN checkpoint. Please retrain with train.py on this branch.")
+        detector = checkpoint["detector"]
 
         output_dir = ensure_dir(self.cfg.output_dir)
         scores_path = output_dir / "scores.csv"
@@ -66,7 +68,7 @@ class AEEvaluator:
             )
         ):
             embeddings = self.embedder.extract(waveforms)
-            anomaly_scores = -gmm.score_samples(embeddings)
+            anomaly_scores = detector.score_samples(embeddings)
             for filename, score_value in zip(basenames, anomaly_scores):
                 label = parse_label_from_filename(filename)
                 domain = parse_domain_from_filename(filename)

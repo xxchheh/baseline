@@ -3,16 +3,16 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from sklearn.mixture import GaussianMixture
 
 from configs import Config
 from dcase_ae.dataset import LocalDCASEDataModule
 from dcase_ae.embedder import PretrainedAudioEmbedder
 from dcase_ae.features import FeatureConfig
+from dcase_ae.knn_detector import KNNAnomalyDetector
 from dcase_ae.utils import ensure_dir, get_device
 
 
-class GMMTrainer:
+class KNNTrainer:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.device = get_device(cfg.use_cuda)
@@ -46,27 +46,28 @@ class GMMTrainer:
     def fit(self) -> Path:
         ensure_dir(self.cfg.output_dir)
         embeddings = self._extract_train_embeddings()
-        gmm = GaussianMixture(
-            n_components=self.cfg.gmm_components,
-            covariance_type=self.cfg.gmm_covariance_type,
-            reg_covar=self.cfg.gmm_reg_covar,
-            max_iter=self.cfg.gmm_max_iter,
-            random_state=self.cfg.seed,
+        print(f"Fitting KNN detector on embeddings: {embeddings.shape}")
+        detector = KNNAnomalyDetector.fit(
+            embeddings,
+            n_neighbors=self.cfg.knn_neighbors,
+            pca_dim=self.cfg.pca_dim,
         )
-        print(f"Fitting GMM on embeddings: {embeddings.shape}")
-        gmm.fit(embeddings)
-        normal_reference_scores = -gmm.score_samples(embeddings)
+        normal_reference_scores = detector.reference_scores()
 
         checkpoint_path = Path(self.cfg.checkpoint_path)
         ensure_dir(checkpoint_path.parent)
         joblib.dump(
             {
-                "gmm": gmm,
+                "detector_type": "knn",
+                "detector": detector,
                 "config": self._checkpoint_config(),
                 "embedding_dim": int(embeddings.shape[1]),
+                "transformed_embedding_dim": int(detector.normal_embeddings.shape[1]),
+                "normal_embedding_count": int(detector.normal_embeddings.shape[0]),
                 "normal_reference_scores": normal_reference_scores.astype(np.float32, copy=False),
                 "score_reference": {
                     "source": "train",
+                    "method": "leave-one-out-knn-distance",
                     "count": int(normal_reference_scores.shape[0]),
                     "mean": float(np.mean(normal_reference_scores)),
                     "std": float(np.std(normal_reference_scores)),

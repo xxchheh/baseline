@@ -14,7 +14,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score one JSON audio file and print JSON result.")
     parser.add_argument("--input_path", type=Path, required=True, help="Input JSON audio file.")
-    parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/gmm.joblib"))
+    parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/knn.joblib"))
     parser.add_argument("--pretrained_model_name", type=str, default="microsoft/wavlm-base")
     parser.add_argument("--embedding_sample_rate", type=int, default=16000)
     parser.add_argument("--json_sample_rate", type=int, default=44800)
@@ -33,16 +33,14 @@ def main() -> None:
     from dcase_ae.utils import get_device
 
     checkpoint = joblib.load(args.checkpoint_path)
-    if not isinstance(checkpoint, dict):
-        raise RuntimeError(
-            "This checkpoint does not contain normal_reference_scores. "
-            "Please retrain with the updated train.py first."
-        )
+    if not isinstance(checkpoint, dict) or checkpoint.get("detector_type") != "knn":
+        raise RuntimeError("Expected a KNN checkpoint. Please retrain with train.py on this branch.")
     if "normal_reference_scores" not in checkpoint:
         raise RuntimeError(
             "Checkpoint is missing normal_reference_scores. "
             "Please retrain with the updated train.py first."
         )
+    detector = checkpoint["detector"]
 
     target_sample_rate = args.embedding_sample_rate if args.downsample else None
     waveform, audio_metadata = load_json_audio(
@@ -73,13 +71,15 @@ def main() -> None:
     )
 
     embeddings = embedder.extract([waveform])
-    raw_score = float(-checkpoint["gmm"].score_samples(embeddings)[0])
+    raw_score = float(detector.score_samples(embeddings)[0])
     result = anomaly_result(raw_score, checkpoint["normal_reference_scores"])
 
     output = {
         "filename": args.input_path.name,
         "input_path": str(args.input_path),
-        "raw_anomaly_score": result.raw_anomaly_score,
+        "detector_type": "knn",
+        "score_meaning": "mean distance to nearest normal embeddings; larger means more abnormal",
+        "raw_knn_distance": result.raw_score,
         "abnormality_score": result.abnormality_score,
         "abnormality_unit": "percentile_0_100",
         "risk_level": result.risk_level,

@@ -12,7 +12,7 @@ RISK_THRESHOLDS = {
 
 @dataclass(frozen=True)
 class AnomalyResult:
-    raw_anomaly_score: float
+    raw_score: float
     abnormality_score: float
     risk_level: str
 
@@ -43,7 +43,7 @@ def anomaly_result(
 ) -> AnomalyResult:
     abnormality_score = score_to_percentile(raw_score, normal_reference_scores)
     return AnomalyResult(
-        raw_anomaly_score=float(raw_score),
+        raw_score=float(raw_score),
         abnormality_score=abnormality_score,
         risk_level=classify_risk(abnormality_score),
     )

@@ -186,3 +186,21 @@ python -m compileall train.py test.py configs.py dcase_ae
 ```
 
 都通过了。实际加载 `microsoft/wavlm-base` 需要你的服务器能访问 HuggingFace，或者模型已经在本地缓存里。
+
+## 单个文件打分
+python score_file.py ^
+  --input_path incoming/new_audio.json ^
+  --checkpoint_path checkpoints/knn.joblib
+
+## 训练代码
+python train.py ^
+  --data_dir data_wav16k/bearing ^
+  --checkpoint_path checkpoints/knn.joblib ^
+  --knn_neighbors 5 ^
+  --pca_dim 64
+
+  ## 批量测试代码 test如果可以检测到normal or anomaly，会使用metrics脚本进行评估模型结果
+  python test.py `
+  --data_dir .\data\data_wav16k\bearing `
+  --checkpoint_path .\checkpoints\knn.joblib `
+  --embedding_sample_rate 16000

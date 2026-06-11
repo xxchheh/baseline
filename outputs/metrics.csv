@@ -1,2 +1,2 @@
 AUC (source),AUC (target),pAUC,pAUC (source),pAUC (target),precision (source),precision (target),recall (source),recall (target),F1 score (source),F1 score (target)
-nan,nan,nan,nan,nan,0.0000000000,nan,0.0000000000,nan,0.0000000000,nan
+1.0000000000,nan,1.0000000000,1.0000000000,nan,0.9090909091,nan,1.0000000000,nan,0.9523809524,nan

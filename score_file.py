@@ -29,7 +29,7 @@ def main() -> None:
 
     from dcase_ae.embedder import PretrainedAudioEmbedder
     from dcase_ae.json_audio import load_json_audio, write_wav
-    from dcase_ae.scoring import RISK_THRESHOLDS, anomaly_result
+    from dcase_ae.scoring import RISK_THRESHOLDS, anomaly_result, health_score_from_reference
     from dcase_ae.utils import get_device
 
     checkpoint = joblib.load(args.checkpoint_path)
@@ -73,6 +73,7 @@ def main() -> None:
     embeddings = embedder.extract([waveform])
     raw_score = float(detector.score_samples(embeddings)[0])
     result = anomaly_result(raw_score, checkpoint["normal_reference_scores"])
+    health = health_score_from_reference(raw_score, checkpoint["normal_reference_scores"])
 
     output = {
         "filename": args.input_path.name,
@@ -83,6 +84,12 @@ def main() -> None:
         "abnormality_score": result.abnormality_score,
         "abnormality_unit": "percentile_0_100",
         "risk_level": result.risk_level,
+        "health_score": health.health_score,
+        "health_level": health.health_level,
+        "health_score_meaning": (
+            "equipment health score derived from KNN distance against normal reference distribution; "
+            "higher is healthier"
+        ),
         "risk_thresholds": RISK_THRESHOLDS,
         "audio": audio_metadata,
         "wav_output_path": str(wav_output_path) if wav_output_path is not None else None,

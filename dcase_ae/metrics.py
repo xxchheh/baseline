@@ -29,7 +29,7 @@ class ScoreRecord:
 
 def parse_label_from_filename(filename: str) -> int | None:
     lower_name = filename.lower()
-    if "anomaly" in lower_name:
+    if any(token in lower_name for token in ("anomaly", "anormaly", "abnormal")):
         return 1
     if "normal" in lower_name:
         return 0

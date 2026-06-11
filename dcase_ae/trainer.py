@@ -55,6 +55,7 @@ class GMMTrainer:
         )
         print(f"Fitting GMM on embeddings: {embeddings.shape}")
         gmm.fit(embeddings)
+        normal_reference_scores = -gmm.score_samples(embeddings)
 
         checkpoint_path = Path(self.cfg.checkpoint_path)
         ensure_dir(checkpoint_path.parent)
@@ -63,6 +64,16 @@ class GMMTrainer:
                 "gmm": gmm,
                 "config": self._checkpoint_config(),
                 "embedding_dim": int(embeddings.shape[1]),
+                "normal_reference_scores": normal_reference_scores.astype(np.float32, copy=False),
+                "score_reference": {
+                    "source": "train",
+                    "count": int(normal_reference_scores.shape[0]),
+                    "mean": float(np.mean(normal_reference_scores)),
+                    "std": float(np.std(normal_reference_scores)),
+                    "p90": float(np.quantile(normal_reference_scores, 0.90)),
+                    "p95": float(np.quantile(normal_reference_scores, 0.95)),
+                    "p99": float(np.quantile(normal_reference_scores, 0.99)),
+                },
             },
             checkpoint_path,
         )

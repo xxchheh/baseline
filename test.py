@@ -2,6 +2,9 @@ import argparse
 from pathlib import Path
 
 from configs import Config
+import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # 顺便解决你之前的OMP错误
 
 
 def parse_args() -> argparse.Namespace:

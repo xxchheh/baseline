@@ -1,0 +1,28 @@
+{
+  "library_version": 1,
+  "detector_type": "knn",
+  "method": "pretrained-audio-embedding + scaler + PCA + KNN",
+  "reference_dir": "data\\data_json\\bearing\\train",
+  "reference_count": 100,
+  "embedding_dim": 768,
+  "transformed_embedding_dim": 64,
+  "pretrained_model_name": "microsoft/wavlm-base",
+  "input_sample_rate": 44800,
+  "target_sample_rate": 16000,
+  "knn_neighbors": 5,
+  "pca_dim": 64,
+  "batch_size": 8,
+  "recursive": true,
+  "pattern": "*.json",
+  "score_reference": {
+    "source": "train",
+    "method": "leave-one-out-knn-distance",
+    "count": 100,
+    "mean": 22.476972579956055,
+    "std": 4.986690998077393,
+    "p50": 21.643192291259766,
+    "p90": 29.487586975097656,
+    "p95": 31.478565216064453,
+    "p99": 34.178001403808594
+  }
+}

@@ -1,206 +1,216 @@
-# DCASE Task 2 Baseline, Pretrained Embedding + GMM
+当前项目可以理解成一个 **基于预训练音频 embedding + KNN 的设备异常/健康度检测 baseline**。
 
-This refactor keeps the existing local data flow and evaluation outputs, but replaces the
-AutoEncoder training/scoring core with:
+**整体目标**
+
+你的输入原始是 JSON 音频数据，采样率约 44.8kHz。项目最终要做的是：
 
 ```text
-pretrained audio model -> mean-pooled embedding -> GaussianMixture score
+JSON 音频
+-> 转成 16kHz 音频
+-> 用预训练音频模型提 embedding
+-> 用 KNN 和正常样本库比较
+-> 输出异常程度 / 风险等级
 ```
 
-The pretrained model is frozen and used only as an embedding extractor. The default model is
-`microsoft/wavlm-base`.
-
-## Dataset
-
-Prepare one local dataset directory:
+目前核心不是训练一个深度模型，而是：
 
 ```text
-your_dataset/
+用预训练模型做特征提取
+用正常样本 embedding 建立 reference bank
+新样本和 reference bank 比距离
+```
+
+**数据流程**
+
+原始 JSON 数据建议放：
+
+```text
+data/data_json/bearing/
 |-- train/
-|   |-- normal_0000.wav
+|   |-- normal_0001.json
+|   |-- normal_0002.json
 |   `-- ...
 `-- test/
-    |-- section_00_source_test_normal_0000.wav
-    |-- section_00_source_test_anomaly_0000.wav
-    |-- section_00_target_test_normal_0000.wav
-    `-- section_00_target_test_anomaly_0000.wav
+    |-- normal_xxx.json
+    |-- anomaly_xxx.json
+    `-- ...
 ```
 
-The code does not download DCASE data and does not loop over machine types. Pass the exact
-dataset directory you want to train and score.
+其中 `train/` 主要放正常数据。
 
-## Train
+然后用：
 
-```bash
-python train.py --data_dir /path/to/your_dataset
+```powershell
+python prepare_json_audio.py `
+  --input_dir .\data\data_json\bearing `
+  --output_dir .\data\data_wav16k\bearing `
+  --input_sample_rate 44800 `
+  --target_sample_rate 16000
 ```
 
-Training now means:
+转换成：
 
 ```text
-read train wav files
-extract one embedding per wav with the frozen pretrained model
-fit sklearn.mixture.GaussianMixture on the train embeddings
-save the GMM with joblib
+data/data_wav16k/bearing/
+|-- train/
+|   |-- normal_0001.wav
+|   `-- ...
+`-- test/
+    |-- normal_xxx.wav
+    |-- anomaly_xxx.wav
+    `-- ...
 ```
 
-The default checkpoint is:
+**训练流程**
+
+训练入口是：
+
+```powershell
+python train.py `
+  --data_dir .\data\data_wav16k\bearing `
+  --checkpoint_path .\checkpoints\knn.joblib
+```
+
+训练做的事情是：
 
 ```text
-checkpoints/gmm.joblib
+读取 train/*.wav
+-> 预训练模型提 embedding
+-> StandardScaler 标准化
+-> PCA 降到 64 维
+-> 保存正常样本 embedding bank
+-> 计算 leave-one-out KNN reference scores
+-> 保存 checkpoints/knn.joblib
 ```
 
-Useful options:
-
-```bash
-python train.py \
-  --data_dir /path/to/your_dataset \
-  --pretrained_model_name microsoft/wavlm-base \
-  --embedding_sample_rate 16000 \
-  --batch_size 8 \
-  --gmm_components 4
-```
-
-## Test
-
-```bash
-python test.py --data_dir /path/to/your_dataset --checkpoint_path checkpoints/gmm.joblib
-```
-
-Testing now means:
+`knn.joblib` 里面保存的核心内容包括：
 
 ```text
-read test wav files
-extract one embedding per wav
-score each embedding with gmm.score_samples
-use negative log likelihood as anomaly_score
-write scores.csv and metrics.csv
+KNN detector
+normal embeddings
+scaler
+pca
+normal_reference_scores
+训练配置
 ```
 
-The test script always writes:
+**推理流程**
+
+单个 JSON 推理入口是：
+
+```powershell
+python score_file.py `
+  --input_path .\data\data_json\bearing\test\xxx.json `
+  --checkpoint_path .\checkpoints\knn.joblib
+```
+
+它会：
+
+```text
+读取 JSON
+-> 默认按 44.8kHz
+-> 下采样到 16kHz
+-> 提 embedding
+-> 用训练时的 scaler/PCA 转换
+-> 和正常 embedding bank 算 KNN 距离
+-> 输出 JSON 结果
+```
+
+输出里目前关键字段是：
+
+```json
+{
+  "raw_knn_distance": 20.85,
+  "abnormality_score": 44.0,
+  "risk_level": "normal_like"
+}
+```
+
+解释：
+
+```text
+raw_knn_distance 越大，越远离正常样本
+abnormality_score 是异常百分位，0-100，越大越异常
+risk_level 是按 90/95/99 阈值给出的风险等级
+```
+
+**批量测试流程**
+
+批量测试入口是：
+
+```powershell
+python test.py `
+  --data_dir .\data\data_wav16k\bearing `
+  --checkpoint_path .\checkpoints\knn.joblib
+```
+
+它读取：
+
+```text
+data/data_wav16k/bearing/test/*.wav
+```
+
+输出：
 
 ```text
 outputs/scores.csv
-```
-
-Each row contains:
-
-```text
-filename,anomaly_score,label,domain
-```
-
-If filenames contain `normal` / `anomaly`, metrics are also written:
-
-```text
 outputs/metrics.csv
 ```
 
-Metric labels are parsed from the filename:
+适合评估正常/异常整体区分效果。
+
+**当前方法的核心逻辑**
+
+KNN 检测器的判断逻辑是：
 
 ```text
-normal   -> label 0
-anomaly  -> label 1
-source   -> source domain
-target   -> target domain
+新样本 embedding
+-> 找最近的 k 个正常 embedding
+-> 计算平均距离
+-> 距离越大，越不像正常
 ```
 
-`metrics.csv` columns:
+然后用训练正常样本自己的 reference scores 做比较：
 
 ```text
-AUC (source),AUC (target),pAUC,pAUC (source),pAUC (target),
-precision (source),precision (target),recall (source),recall (target),
-F1 score (source),F1 score (target)
+新样本距离超过多少比例的正常 reference scores
+= abnormality_score
 ```
 
-If a required group has only normal or only anomaly samples, that metric is written as `nan`.
-
-## Notes
-
-The first run of `microsoft/wavlm-base` requires the model to be available from Hugging Face or
-already cached locally. To use another compatible Hugging Face audio model, pass
-`--pretrained_model_name`.
-
-
-
-## 增加BEATs与GMM打分
-
-已完成：核心算法已经从 **AutoEncoder + MSE** 替换成了 **预训练音频大模型 embedding + GMM 负对数似然打分**。
-
-改动重点：
-
-- 新增 [dcase_ae/embedder.py](D:/CodeMater/DCASE/myproject/dcase2023_task2_baseline_ae/dcase_ae/embedder.py)
-  - 使用 `transformers` 加载默认模型 `microsoft/wavlm-base`
-  - 冻结所有参数
-  - 对 `last_hidden_state` 做 mean pooling，得到每条 wav 一个 embedding
-
-- 重写 [dcase_ae/trainer.py](D:/CodeMater/DCASE/myproject/dcase2023_task2_baseline_ae/dcase_ae/trainer.py)
-  - 不再训练 AE
-  - 不再有 optimizer / epoch / loss / backward
-  - 遍历 `train/`，提取 embedding
-  - 使用 `sklearn.mixture.GaussianMixture` 拟合
-  - 保存到 `checkpoints/gmm.joblib`
-
-- 修改 [dcase_ae/evaluator.py](D:/CodeMater/DCASE/myproject/dcase2023_task2_baseline_ae/dcase_ae/evaluator.py)
-  - 加载 GMM
-  - 遍历 `test/`，提取 embedding
-  - 使用：
-
-```python
-anomaly_score = -gmm.score_samples(embedding)
-```
-
-  - 后续 `scores.csv`、`metrics.csv`、AUC/pAUC/precision/recall/F1 的保存逻辑保留原来的输出形式
-
-新增依赖：
+比如：
 
 ```text
-transformers
-scikit-learn
-joblib
+abnormality_score = 96
 ```
 
-现在使用方式：
+表示：
 
-```bash
-python train.py --data_dir /path/to/your_dataset
-python test.py --data_dir /path/to/your_dataset --checkpoint_path checkpoints/gmm.joblib
+```text
+这个样本比 96% 的训练正常样本更偏离正常
 ```
 
-可调参数示例：
+**你现在还想加的健康度**
 
-```bash
-python train.py \
-  --data_dir /path/to/your_dataset \
-  --pretrained_model_name microsoft/wavlm-base \
-  --embedding_sample_rate 16000 \
-  --batch_size 8 \
-  --gmm_components 4
+当前已有的是异常百分位，不是健康度。后续比较适合新增：
+
+```json
+{
+  "health_score": 96.5,
+  "health_level": "healthy"
+}
 ```
 
-我也做了静态检查：
+推荐逻辑是：
 
-```bash
-python train.py --help
-python test.py --help
-python -m compileall train.py test.py configs.py dcase_ae
+```text
+低于正常 p50: 健康度 100
+p50-p90: 100 降到 95
+p90-p95: 95 降到 90
+p95-p99: 90 快速降到 40
+超过 p99: 继续降到 0
 ```
 
-都通过了。实际加载 `microsoft/wavlm-base` 需要你的服务器能访问 HuggingFace，或者模型已经在本地缓存里。
+这样正常样本即使 `abnormality_score=44`，健康度仍然可以保持在 90-100，更符合设备健康评分直觉。
 
-## 单个文件打分
-python score_file.py ^
-  --input_path incoming/new_audio.json ^
-  --checkpoint_path checkpoints/knn.joblib
-
-## 训练代码
-python train.py ^
-  --data_dir data_wav16k/bearing ^
-  --checkpoint_path checkpoints/knn.joblib ^
-  --knn_neighbors 5 ^
-  --pca_dim 64
-
-  ## 批量测试代码 test如果可以检测到normal or anomaly，会使用metrics脚本进行评估模型结果
-  python test.py `
-  --data_dir .\data\data_wav16k\bearing `
-  --checkpoint_path .\checkpoints\knn.joblib `
-  --embedding_sample_rate 16000
+一句话总结：  
+这个项目现在是 **JSON 音频 -> 16kHz -> 预训练 embedding -> KNN 正常参考库 -> 异常百分位输出** 的异常检测系统。下一步最自然的是在单文件推理输出里增加 `health_score`。

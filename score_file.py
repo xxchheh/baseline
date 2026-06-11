@@ -14,6 +14,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score one JSON audio file and print JSON result.")
     parser.add_argument("--input_path", type=Path, required=True, help="Input JSON audio file.")
+    parser.add_argument("--library_dir", type=Path, default=None, help="KNN health library directory.")
     parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/knn.joblib"))
     parser.add_argument("--pretrained_model_name", type=str, default="microsoft/wavlm-base")
     parser.add_argument("--embedding_sample_rate", type=int, default=16000)
@@ -26,6 +27,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    from dcase_ae.health_library import HealthAnalyzer, HealthLibraryError, error_result
+
+    if args.library_dir is not None:
+        try:
+            analyzer = HealthAnalyzer(args.library_dir, use_cuda=args.use_cuda)
+            output = analyzer.analyze_json_file(args.input_path).to_dict()
+        except HealthLibraryError as exc:
+            output = exc.to_dict()
+        except Exception as exc:
+            output = error_result("score_file_failed", str(exc))
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
 
     from dcase_ae.embedder import PretrainedAudioEmbedder
     from dcase_ae.json_audio import load_json_audio, write_wav

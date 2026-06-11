@@ -15,6 +15,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score one JSON audio file and print JSON result.")
     parser.add_argument("--input_path", type=Path, required=True, help="Input JSON audio file.")
     parser.add_argument("--library_dir", type=Path, default=None, help="KNN health library directory.")
+    parser.add_argument("--machine_type", type=str, default=None, help="Machine type key for runtime health library lookup.")
+    parser.add_argument("--library_name", type=str, default=None, help="Optional health library name.")
     parser.add_argument("--checkpoint_path", type=Path, default=Path("checkpoints/knn.joblib"))
     parser.add_argument("--pretrained_model_name", type=str, default="microsoft/wavlm-base")
     parser.add_argument("--embedding_sample_rate", type=int, default=16000)
@@ -28,7 +30,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    from dcase_ae.health_library import HealthAnalyzer, HealthLibraryError, error_result
+    from dcase_ae.health_library import HealthAnalyzer, HealthLibraryError, analyze_json_file_with_runtime, error_result
+
+    if args.machine_type is not None:
+        output = analyze_json_file_with_runtime(
+            args.input_path,
+            args.machine_type,
+            library_name=args.library_name,
+        )
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
 
     if args.library_dir is not None:
         try:

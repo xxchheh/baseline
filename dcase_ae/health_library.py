@@ -1,5 +1,8 @@
 import csv
 import json
+import os
+import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +12,7 @@ import numpy as np
 
 from dcase_ae.json_audio import DEFAULT_JSON_SAMPLE_RATE, load_json_audio
 from dcase_ae.knn_detector import KNNAnomalyDetector
+from dcase_ae.runtime import RuntimeConfig
 from dcase_ae.scoring import RISK_THRESHOLDS, anomaly_result, health_score_from_reference
 
 
@@ -20,6 +24,8 @@ REQUIRED_LIBRARY_FILES = (
     "reference_scores.npy",
     "reference_embeddings.npy",
 )
+_BUILD_LOCKS: dict[str, threading.Lock] = {}
+_BUILD_LOCKS_GUARD = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -269,12 +275,124 @@ def validate_health_library(library_dir: str | Path) -> dict[str, Any]:
     }
 
 
+def resolve_or_build_health_library(
+    machine_type: str,
+    *,
+    runtime_config: RuntimeConfig | None = None,
+    library_name: str | None = None,
+    build_config: HealthLibraryConfig | None = None,
+) -> Path:
+    runtime_config = runtime_config or RuntimeConfig.from_env()
+    library_dir = runtime_config.library_dir(machine_type, library_name)
+    validation = validate_health_library(library_dir)
+    if validation["status"] == "ok":
+        return library_dir
+
+    if not runtime_config.enable_library_training:
+        raise HealthLibraryError(
+            validation["status_code"],
+            validation["message"]
+            + "; automatic library training is disabled. Set DCASE_ENABLE_LIBRARY_TRAINING=1 to enable it.",
+        )
+
+    training_dir = runtime_config.training_dir(machine_type, library_name)
+    files = _iter_json_files(training_dir, (build_config or HealthLibraryConfig()).pattern, True)
+    if len(files) < 2:
+        raise HealthLibraryError(
+            "health_library_missing_training_data",
+            f"Need at least two JSON training files in {training_dir}; found {len(files)}.",
+        )
+
+    _build_library_locked(
+        training_dir=training_dir,
+        library_dir=library_dir,
+        config=build_config or HealthLibraryConfig(use_cuda=runtime_config.use_cuda),
+    )
+    validation = validate_health_library(library_dir)
+    if validation["status"] != "ok":
+        raise HealthLibraryError(validation["status_code"], validation["message"])
+    return library_dir
+
+
+def analyze_json_file_with_runtime(
+    input_path: str | Path,
+    machine_type: str,
+    *,
+    runtime_config: RuntimeConfig | None = None,
+    library_name: str | None = None,
+    build_config: HealthLibraryConfig | None = None,
+) -> dict[str, Any]:
+    runtime_config = runtime_config or RuntimeConfig.from_env()
+    try:
+        library_dir = resolve_or_build_health_library(
+            machine_type,
+            runtime_config=runtime_config,
+            library_name=library_name,
+            build_config=build_config,
+        )
+        analyzer = HealthAnalyzer(library_dir, use_cuda=runtime_config.use_cuda)
+        return analyzer.analyze_json_file(input_path).to_dict()
+    except HealthLibraryError as exc:
+        return exc.to_dict()
+    except Exception as exc:
+        return error_result("health_analysis_failed", str(exc))
+
+
 def error_result(status_code: str, message: str) -> dict[str, Any]:
     return {
         "status": "error",
         "status_code": status_code,
         "message": message,
     }
+
+
+def _build_library_locked(
+    training_dir: Path,
+    library_dir: Path,
+    config: HealthLibraryConfig,
+) -> None:
+    library_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock = _get_thread_lock(library_dir)
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        raise HealthLibraryError(
+            "health_library_building",
+            f"Health library build is already in progress for {library_dir}.",
+        )
+    lock_path = library_dir.parent / f"{library_dir.name}.build.lock"
+    lock_fd: int | None = None
+    try:
+        try:
+            lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(lock_fd, f"pid={os.getpid()} time={time.time()}\n".encode("utf-8"))
+        except FileExistsError as exc:
+            raise HealthLibraryError(
+                "health_library_building",
+                f"Health library build lock already exists: {lock_path}",
+            ) from exc
+
+        current = validate_health_library(library_dir)
+        if current["status"] == "ok":
+            return
+        build_health_library(training_dir, library_dir, config)
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
+        lock.release()
+
+
+def _get_thread_lock(library_dir: Path) -> threading.Lock:
+    key = str(library_dir.resolve()).lower()
+    with _BUILD_LOCKS_GUARD:
+        lock = _BUILD_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _BUILD_LOCKS[key] = lock
+        return lock
 
 
 def _iter_json_files(reference_dir: Path, pattern: str, recursive: bool) -> list[Path]:
